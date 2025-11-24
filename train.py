@@ -108,7 +108,7 @@ def main():
     model = SODNet(in_channels=3, base_channels=32).to(device)
     optimizer = Adam(model.parameters(), lr=1e-3)
 
-    num_epochs = 3  # for now small, later 15–25 as requirement
+    num_epochs = 2
     best_val_loss = float("inf")
     os.makedirs("checkpoints", exist_ok=True)
 

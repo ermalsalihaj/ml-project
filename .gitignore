@@ -1,0 +1,10 @@
+# Ignore dataset
+data/DUTS/
+data/*
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore checkpoints
+checkpoints/
