@@ -8,3 +8,6 @@ __pycache__/
 
 # Ignore checkpoints
 checkpoints/
+
+# Ignore results
+results/
