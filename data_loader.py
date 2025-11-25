@@ -15,7 +15,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 import torchvision.transforms.functional as TF
 
 
@@ -100,75 +100,38 @@ class SaliencyDataset(Dataset):
         return image, mask
 
 
-def create_dataloaders(
-    root_dir: str,
-    img_size: int = 128,
-    batch_size: int = 8,
-    num_workers: int = 0,
-) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    
+def create_dataloaders(root_dir, img_size=128, batch_size=8):
     """
-    Splits into Train (70%), Val (15%), Test (15%).
+    Correct 70/15/15 split of DUTS dataset.
     """
 
     image_dir = os.path.join(root_dir, "images")
-    mask_dir = os.path.join(root_dir, "masks")
+    mask_dir  = os.path.join(root_dir, "masks")
 
-    all_images = sorted(
-        [os.path.join(image_dir, f) for f in os.listdir(image_dir)
-         if f.lower().endswith((".jpg", ".jpeg", ".png"))]
-    )
-    all_masks = sorted(
-        [os.path.join(mask_dir, f) for f in os.listdir(mask_dir)
-         if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))]
-    )
+    if not os.path.exists(image_dir):
+        raise ValueError(f"Image folder not found: {image_dir}")
+    if not os.path.exists(mask_dir):
+        raise ValueError(f"Mask folder not found: {mask_dir}")
 
-    assert len(all_images) == len(all_masks), "Images and masks count mismatch."
+    dataset = SaliencyDataset(image_dir=image_dir, mask_dir=mask_dir, img_size=img_size)
 
-    indices = list(range(len(all_images)))
+    total = len(dataset)
+    train_size = int(0.70 * total)
+    val_size   = int(0.15 * total)
+    test_size  = total - train_size - val_size  # leftover
 
-    # 70% train, 30% temp
-    train_idx, temp_idx = train_test_split(
-        indices, test_size=0.30, random_state=42, shuffle=True
-    )
+    print(f"Total images: {total}")
+    print(f"Train: {train_size}, Val: {val_size}, Test: {test_size}")
 
-    # Split temp into val and test (15% / 15%)
-    val_idx, test_idx = train_test_split(
-        temp_idx, test_size=0.50, random_state=42, shuffle=True
+    train_subset, val_subset, test_subset = random_split(
+        dataset,
+        [train_size, val_size, test_size],
+        generator=torch.Generator().manual_seed(42)
     )
 
-    def subset_paths(idxs: List[int]):
-        imgs = [all_images[i] for i in idxs]
-        masks = [all_masks[i] for i in idxs]
-        return imgs, masks
-
-    # For now we ignore subset_paths and just construct datasets
-    # using the full folder; later we can make a Subset if needed.
-    train_dataset = SaliencyDataset(image_dir, mask_dir,
-                                    img_size=img_size, augment=True)
-    val_dataset = SaliencyDataset(image_dir, mask_dir,
-                                  img_size=img_size, augment=False)
-    test_dataset = SaliencyDataset(image_dir, mask_dir,
-                                   img_size=img_size, augment=False)
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-    )
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-    )
+    train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    val_loader   = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
+    test_loader  = DataLoader(test_subset, batch_size=batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
 

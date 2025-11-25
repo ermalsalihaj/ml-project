@@ -99,36 +99,63 @@ def main():
     print("Using device:", device)
 
     train_loader, val_loader, test_loader = create_dataloaders(
-        root_dir=data_root,
-        img_size=128,
-        batch_size=8,
-        num_workers=0,
-    )
+    root_dir=data_root,
+    img_size=128,
+    batch_size=8,
+)
 
     model = SODNet(in_channels=3, base_channels=32).to(device)
     optimizer = Adam(model.parameters(), lr=1e-3)
 
-    num_epochs = 2
+    num_epochs = 25
     best_val_loss = float("inf")
-    os.makedirs("checkpoints", exist_ok=True)
+    epochs_no_improve = 0
+    patience = 3  # stop if val loss doesn't improve for 3 epochs
 
     for epoch in range(1, num_epochs + 1):
         print(f"\nEpoch {epoch}/{num_epochs}")
 
-        train_loss, train_iou = train_one_epoch(model, train_loader, optimizer, device)
-        val_loss, val_iou = validate(model, val_loader, device)
+        # training step
+        train_loss, train_iou = train_one_epoch(
+            model=model,
+            loader=train_loader,
+            optimizer=optimizer,
+            device=device,
+        )
+
+        # validation step
+        val_loss, val_iou = validate(
+            model=model,
+            loader=val_loader,
+            device=device,
+        )
 
         print(
             f"Train Loss: {train_loss:.4f}, Train IoU: {train_iou:.4f} | "
             f"Val Loss: {val_loss:.4f}, Val IoU: {val_iou:.4f}"
         )
 
-        # Save best model
-        if val_loss < best_val_loss:
+        # -------------------------
+        #     EARLY STOPPING
+        # -------------------------
+        if val_loss < best_val_loss - 1e-4:
             best_val_loss = val_loss
-            ckpt_path = os.path.join("checkpoints", "best_model.pth")
-            torch.save(model.state_dict(), ckpt_path)
-            print(f"Saved new best model to {ckpt_path}")
+            epochs_no_improve = 0
+
+            os.makedirs("checkpoints", exist_ok=True)
+            torch.save(
+                model.state_dict(),
+                os.path.join("checkpoints", "best_model.pth"),
+            )
+            print("Saved new best model to checkpoints/best_model.pth")
+        else:
+            epochs_no_improve += 1
+            print(f"No improvement in val loss for {epochs_no_improve} epoch(s).")
+
+            if epochs_no_improve >= patience:
+                print(f"Early stopping triggered after {epoch} epochs.")
+                break
+
 
 
 if __name__ == "__main__":
