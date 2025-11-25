@@ -1,14 +1,18 @@
 """
 evaluate.py
 
-Evaluation metrics and simple visualization helpers.
+Evaluation metrics, full test evaluation, and visualization helpers.
 """
 
+import os
 from typing import Dict
 
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+
+from data_loader import create_dataloaders
+from sod_model import SODNet
 
 
 def compute_iou(preds: torch.Tensor, targets: torch.Tensor, threshold: float = 0.5) -> float:
@@ -92,5 +96,99 @@ def visualize_sample(image, gt_mask, pred_mask, save_path: str = None, title: st
     plt.close(fig)
 
 
+def evaluate_on_loader(
+    model: torch.nn.Module,
+    loader,
+    device: torch.device,
+    threshold: float = 0.5,
+) -> Dict[str, float]:
+    """
+    Run full evaluation on a DataLoader (e.g. test_loader) and return
+    average IoU, precision, recall, F1, and MAE.
+    """
+    model.eval()
+
+    total_iou = 0.0
+    total_precision = 0.0
+    total_recall = 0.0
+    total_f1 = 0.0
+    total_mae = 0.0
+    num_batches = 0
+
+    with torch.no_grad():
+        for images, masks in loader:
+            images = images.to(device)
+            masks = masks.to(device)
+
+            preds = model(images)  # [B, 1, H, W], sigmoid output
+
+            # IoU
+            iou = compute_iou(preds, masks, threshold=threshold)
+
+            # Precision / Recall / F1
+            cls_metrics = compute_classification_metrics(preds, masks, threshold=threshold)
+
+            # Mean Absolute Error
+            mae = F.l1_loss(preds, masks).item()
+
+            total_iou += iou
+            total_precision += cls_metrics["precision"]
+            total_recall += cls_metrics["recall"]
+            total_f1 += cls_metrics["f1"]
+            total_mae += mae
+            num_batches += 1
+
+    if num_batches == 0:
+        return {
+            "iou": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "mae": 0.0,
+        }
+
+    return {
+        "iou": total_iou / num_batches,
+        "precision": total_precision / num_batches,
+        "recall": total_recall / num_batches,
+        "f1": total_f1 / num_batches,
+        "mae": total_mae / num_batches,
+    }
+
+
 if __name__ == "__main__":
-    print("This file defines IoU, precision/recall/F1 and visualization helpers.")
+    # Full test-set evaluation
+    data_root = os.path.join("data", "DUTS")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using device for evaluation:", device)
+
+    # Load dataloaders (only need test_loader, but function returns all three)
+    _, _, test_loader = create_dataloaders(
+        root_dir=data_root,
+        img_size=128,
+        batch_size=8,
+    )
+
+    # Build model and load best weights
+    model = SODNet(in_channels=3, base_channels=32).to(device)
+
+    ckpt_path = os.path.join("checkpoints", "best_model.pth")
+    if not os.path.exists(ckpt_path):
+        raise FileNotFoundError(
+            f"Checkpoint not found at {ckpt_path}. "
+            f"Please run train.py first to generate best_model.pth."
+        )
+
+    state_dict = torch.load(ckpt_path, map_location=device)
+    model.load_state_dict(state_dict)
+    print(f"Loaded best model from {ckpt_path}")
+
+    # Run full evaluation on test set
+    metrics = evaluate_on_loader(model, test_loader, device, threshold=0.5)
+
+    print("\n=== Test Set Metrics ===")
+    print(f"IoU:       {metrics['iou']:.4f}")
+    print(f"Precision: {metrics['precision']:.4f}")
+    print(f"Recall:    {metrics['recall']:.4f}")
+    print(f"F1-score:  {metrics['f1']:.4f}")
+    print(f"MAE:       {metrics['mae']:.4f}")
