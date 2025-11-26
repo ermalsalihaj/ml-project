@@ -14,14 +14,14 @@ class ConvBlock(nn.Module):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),           
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout),                  
+            nn.Dropout2d(dropout),
 
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),           
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout),                 
+            nn.Dropout2d(dropout),
         )
 
     def forward(self, x):
@@ -35,6 +35,7 @@ class SODNet(nn.Module):
     Improvements added:
     - BatchNorm
     - Dropout
+    - Deeper bottleneck ConvBlock
     """
 
     def __init__(self, in_channels: int = 3, base_channels: int = 32, dropout=0.1):
@@ -52,7 +53,10 @@ class SODNet(nn.Module):
 
         self.enc4 = ConvBlock(base_channels * 4, base_channels * 8, dropout)
 
-        # Decoder (simple, no skip connections)
+        # NEW: deeper conv block
+        self.bottleneck = ConvBlock(base_channels * 8, base_channels * 8, dropout)
+
+        # Decoder
         self.up3 = nn.ConvTranspose2d(base_channels * 8, base_channels * 4, kernel_size=2, stride=2)
         self.dec3 = ConvBlock(base_channels * 4, base_channels * 4, dropout)
 
@@ -62,7 +66,6 @@ class SODNet(nn.Module):
         self.up1 = nn.ConvTranspose2d(base_channels * 2, base_channels, kernel_size=2, stride=2)
         self.dec1 = ConvBlock(base_channels, base_channels, dropout)
 
-        # Final 1-channel mask
         self.final_conv = nn.Conv2d(base_channels, 1, kernel_size=1)
 
     def forward(self, x):
@@ -76,7 +79,10 @@ class SODNet(nn.Module):
         x3 = self.enc3(p2)
         p3 = self.pool3(x3)
 
-        bottleneck = self.enc4(p3)
+        x4 = self.enc4(p3)
+
+        # NEW: deeper bottleneck
+        bottleneck = self.bottleneck(x4)
 
         # Decoder
         d3 = self.up3(bottleneck)
@@ -89,7 +95,7 @@ class SODNet(nn.Module):
         d1 = self.dec1(d1)
 
         out = self.final_conv(d1)
-        return torch.sigmoid(out) 
+        return torch.sigmoid(out)
 
 
 if __name__ == "__main__":
